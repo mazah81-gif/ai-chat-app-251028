@@ -1,18 +1,22 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Send, MessageCircle } from 'lucide-react';
-import { Message, ChatHistory } from '@/lib/types';
+import { Send, MessageCircle, Settings, Wrench } from 'lucide-react';
+import { Message, ChatHistory, FunctionCallInfo } from '@/lib/types';
+import Link from 'next/link';
 import { 
   loadChatHistory, 
   saveChatHistory, 
   createNewChat, 
   updateChat,
-  deleteChat 
+  deleteChat,
+  loadMCPToolsEnabled,
+  saveMCPToolsEnabled
 } from '@/lib/storage';
 import { MarkdownRenderer } from '@/components/markdown-renderer';
 import { loadTheme, saveTheme, type Theme } from '@/lib/theme';
 import { ChatSidebar } from '@/components/chat-sidebar';
+import { FunctionCallCard } from '@/components/function-call-card';
 
 export default function ChatPage() {
   const [chatHistory, setChatHistory] = useState<ChatHistory>({ chats: [], currentChatId: null });
@@ -20,6 +24,7 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [theme, setTheme] = useState<Theme>('default');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mcpToolsEnabled, setMcpToolsEnabled] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const currentChat = chatHistory.chats.find(c => c.id === chatHistory.currentChatId);
@@ -39,6 +44,9 @@ export default function ChatPage() {
       
       const savedTheme = loadTheme();
       setTheme(savedTheme);
+      
+      const mcpEnabled = loadMCPToolsEnabled();
+      setMcpToolsEnabled(mcpEnabled);
     } catch (error) {
       console.error('Failed to initialize app:', error);
       // 오류 발생 시 새 채팅으로 시작
@@ -102,6 +110,12 @@ export default function ChatPage() {
     saveTheme(newTheme);
   };
 
+  const toggleMCPTools = () => {
+    const newEnabled = !mcpToolsEnabled;
+    setMcpToolsEnabled(newEnabled);
+    saveMCPToolsEnabled(newEnabled);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -136,6 +150,7 @@ export default function ChatPage() {
         body: JSON.stringify({
           message: userMessage.content,
           history,
+          mcpToolsEnabled,
         }),
       });
 
@@ -152,10 +167,12 @@ export default function ChatPage() {
       }
 
       let assistantContent = '';
+      const functionCalls: Map<string, FunctionCallInfo> = new Map();
       const assistantMessage: Message = {
         role: 'assistant',
         content: '',
         timestamp: Date.now(),
+        functionCalls: [],
       };
 
       const withAssistantMessage = [...updatedMessages, assistantMessage];
@@ -165,18 +182,113 @@ export default function ChatPage() {
         chats: chatHistory.chats.map(c => c.id === chatWithAssistant.id ? chatWithAssistant : c),
       });
 
+      let buffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         const chunk = decoder.decode(value, { stream: true });
-        assistantContent += chunk;
+        buffer += chunk;
 
-        const streamingMessages = [...updatedMessages, { ...assistantMessage, content: assistantContent }];
+        // 함수 호출 이벤트 파싱
+        const eventRegex = /<<<FUNCTION_EVENT>>>([\s\S]*?)<<<END_EVENT>>>/g;
+        let lastProcessedIndex = 0;
+        let match;
+        
+        while ((match = eventRegex.exec(buffer)) !== null) {
+          // 이벤트 이전의 텍스트를 콘텐츠에 추가
+          const textBeforeEvent = buffer.substring(lastProcessedIndex, match.index);
+          if (textBeforeEvent) {
+            assistantContent += textBeforeEvent;
+          }
+          
+          try {
+            const eventJson = match[1].trim();
+            const event = JSON.parse(eventJson);
+            
+            if (event.type === 'call_start') {
+              // 함수 호출 시작
+              functionCalls.set(event.data.name, {
+                name: event.data.name,
+                args: event.data.args || {},
+                status: 'pending',
+              });
+            } else if (event.type === 'call_result') {
+              // 함수 호출 결과
+              const existingCall = functionCalls.get(event.data.name);
+              if (existingCall) {
+                existingCall.result = event.data.response;
+                existingCall.status = 'success';
+              }
+            }
+          } catch (e) {
+            console.error('Failed to parse function event:', e);
+          }
+          
+          lastProcessedIndex = match.index + match[0].length;
+        }
+        
+        // 처리된 부분과 남은 텍스트 처리
+        if (lastProcessedIndex > 0) {
+          // 처리된 이벤트 이후의 텍스트
+          const remainingText = buffer.substring(lastProcessedIndex);
+          
+          // 불완전한 이벤트 마커가 있는지 확인
+          const incompleteMarkerIndex = remainingText.lastIndexOf('<<<FUNCTION_EVENT>>>');
+          if (incompleteMarkerIndex !== -1) {
+            // 불완전한 마커 이전의 텍스트만 추가
+            const textToAdd = remainingText.substring(0, incompleteMarkerIndex);
+            if (textToAdd) {
+              assistantContent += textToAdd;
+            }
+            // 불완전한 마커부터 다음 청크를 위해 버퍼에 유지
+            buffer = remainingText.substring(incompleteMarkerIndex);
+          } else {
+            // 이벤트 마커가 없으면 모든 텍스트 추가
+            assistantContent += remainingText;
+            buffer = '';
+          }
+        } else {
+          // 이벤트가 하나도 처리되지 않았을 때
+          const incompleteMarkerIndex = buffer.lastIndexOf('<<<FUNCTION_EVENT>>>');
+          if (incompleteMarkerIndex !== -1) {
+            // 불완전한 마커 이전까지만 추가
+            const textToAdd = buffer.substring(0, incompleteMarkerIndex);
+            if (textToAdd) {
+              assistantContent += textToAdd;
+            }
+            buffer = buffer.substring(incompleteMarkerIndex);
+          } else if (!buffer.includes('<<<FUNCTION_EVENT>>>')) {
+            // 마커가 없으면 모든 텍스트 추가
+            assistantContent += buffer;
+            buffer = '';
+          }
+        }
+
+        const streamingMessages = [...updatedMessages, { 
+          ...assistantMessage, 
+          content: assistantContent,
+          functionCalls: Array.from(functionCalls.values()),
+        }];
         const streamingChat = updateChat(currentChat, streamingMessages);
         setChatHistory({
           ...chatHistory,
           chats: chatHistory.chats.map(c => c.id === streamingChat.id ? streamingChat : c),
+        });
+      }
+      
+      // 남은 버퍼 처리
+      if (buffer) {
+        assistantContent += buffer;
+        const finalMessages = [...updatedMessages, { 
+          ...assistantMessage, 
+          content: assistantContent,
+          functionCalls: Array.from(functionCalls.values()),
+        }];
+        const finalChat = updateChat(currentChat, finalMessages);
+        setChatHistory({
+          ...chatHistory,
+          chats: chatHistory.chats.map(c => c.id === finalChat.id ? finalChat : c),
         });
       }
     } catch (error) {
@@ -223,6 +335,32 @@ export default function ChatPage() {
           </h1>
           <div className="flex items-center gap-2">
             <button
+              onClick={toggleMCPTools}
+              className={`p-2 rounded-lg transition-colors ${
+                mcpToolsEnabled
+                  ? theme === 'kakao'
+                    ? 'bg-yellow-400 text-gray-800 hover:bg-yellow-500'
+                    : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : theme === 'kakao'
+                    ? 'hover:bg-yellow-400/50'
+                    : 'hover:bg-accent'
+              }`}
+              title={mcpToolsEnabled ? 'MCP 도구 비활성화' : 'MCP 도구 활성화'}
+            >
+              <Wrench className="w-5 h-5" />
+            </button>
+            <Link
+              href="/mcp"
+              className={`p-2 rounded-lg transition-colors ${
+                theme === 'kakao' 
+                  ? 'hover:bg-yellow-400/50' 
+                  : 'hover:bg-accent'
+              }`}
+              title="MCP 서버 관리"
+            >
+              <Settings className="w-5 h-5" />
+            </Link>
+            <button
               onClick={toggleTheme}
               className={`p-2 rounded-lg transition-colors ${
                 theme === 'kakao' 
@@ -253,27 +391,42 @@ export default function ChatPage() {
                   message.role === 'user' ? 'justify-end' : 'justify-start'
                 }`}
               >
-              <div
-                className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                  theme === 'kakao'
-                    ? message.role === 'user'
-                      ? 'kakao-user-bubble'
-                      : 'kakao-assistant-bubble'
-                    : message.role === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-muted text-foreground'
-                }`}
-              >
-                  {message.role === 'user' ? (
-                    <p className="whitespace-pre-wrap break-words">
-                      {message.content}
-                    </p>
-                  ) : (
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <MarkdownRenderer 
-                        content={message.content} 
-                        isStreaming={isStreamingThisMessage}
-                      />
+              <div className="max-w-[80%] space-y-2">
+                <div
+                  className={`rounded-lg px-4 py-2 ${
+                    theme === 'kakao'
+                      ? message.role === 'user'
+                        ? 'kakao-user-bubble'
+                        : 'kakao-assistant-bubble'
+                      : message.role === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-foreground'
+                  }`}
+                >
+                    {message.role === 'user' ? (
+                      <p className="whitespace-pre-wrap break-words">
+                        {message.content}
+                      </p>
+                    ) : (
+                      <div className="prose prose-sm max-w-none dark:prose-invert">
+                        <MarkdownRenderer 
+                          content={message.content} 
+                          isStreaming={isStreamingThisMessage}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* 함수 호출 카드 표시 (Assistant 메시지에만) */}
+                  {message.role === 'assistant' && message.functionCalls && message.functionCalls.length > 0 && (
+                    <div className="space-y-2">
+                      {message.functionCalls.map((functionCall, fcIndex) => (
+                        <FunctionCallCard
+                          key={`${index}-${fcIndex}`}
+                          functionCall={functionCall}
+                          theme={theme}
+                        />
+                      ))}
                     </div>
                   )}
                 </div>

@@ -1,6 +1,8 @@
-import { ChatHistory, Chat, Message } from './types';
+import { ChatHistory, Chat, Message, MCPServerConfig } from './types';
 
 const STORAGE_KEY = 'chat_history';
+const MCP_SERVERS_KEY = 'mcp_servers';
+const MCP_TOOLS_ENABLED_KEY = 'mcp_tools_enabled';
 
 export function generateChatId(): string {
   return `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -100,5 +102,142 @@ export function deleteChat(history: ChatHistory, chatId: string): ChatHistory {
     : history.currentChatId;
   
   return { chats, currentChatId };
+}
+
+// MCP 서버 관리 함수
+export function generateMCPServerId(): string {
+  return `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+export function loadMCPServers(): MCPServerConfig[] {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+  
+  try {
+    const stored = localStorage.getItem(MCP_SERVERS_KEY);
+    if (!stored) {
+      return [];
+    }
+    
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      console.warn('Invalid MCP servers format, resetting...');
+      return [];
+    }
+    
+    return parsed as MCPServerConfig[];
+  } catch (error) {
+    console.error('Failed to load MCP servers:', error);
+    return [];
+  }
+}
+
+export function saveMCPServers(servers: MCPServerConfig[]): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    localStorage.setItem(MCP_SERVERS_KEY, JSON.stringify(servers));
+  } catch (error) {
+    console.error('Failed to save MCP servers:', error);
+  }
+}
+
+export function addMCPServer(server: Omit<MCPServerConfig, 'id' | 'createdAt'>): MCPServerConfig {
+  const newServer: MCPServerConfig = {
+    ...server,
+    id: generateMCPServerId(),
+    createdAt: Date.now(),
+  };
+  
+  const servers = loadMCPServers();
+  servers.push(newServer);
+  saveMCPServers(servers);
+  
+  return newServer;
+}
+
+export function updateMCPServer(id: string, updates: Partial<MCPServerConfig>): void {
+  const servers = loadMCPServers();
+  const index = servers.findIndex(s => s.id === id);
+  
+  if (index >= 0) {
+    servers[index] = { ...servers[index], ...updates };
+    saveMCPServers(servers);
+  }
+}
+
+export function deleteMCPServer(id: string): void {
+  const servers = loadMCPServers();
+  const filtered = servers.filter(s => s.id !== id);
+  saveMCPServers(filtered);
+}
+
+export function exportMCPConfig(): string {
+  const servers = loadMCPServers();
+  return JSON.stringify(servers, null, 2);
+}
+
+export function importMCPConfig(jsonString: string): boolean {
+  try {
+    const parsed = JSON.parse(jsonString);
+    
+    if (!Array.isArray(parsed)) {
+      return false;
+    }
+    
+    // 기본 검증
+    const isValid = parsed.every(
+      server =>
+        typeof server.name === 'string' &&
+        typeof server.transportType === 'string' &&
+        ['stdio', 'sse', 'http'].includes(server.transportType)
+    );
+    
+    if (!isValid) {
+      return false;
+    }
+    
+    // 새로운 ID와 createdAt 할당
+    const servers = parsed.map(server => ({
+      ...server,
+      id: generateMCPServerId(),
+      createdAt: Date.now(),
+    }));
+    
+    saveMCPServers(servers);
+    return true;
+  } catch (error) {
+    console.error('Failed to import MCP config:', error);
+    return false;
+  }
+}
+
+// MCP 도구 활성화/비활성화 설정
+export function loadMCPToolsEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return true; // 기본값: 활성화
+  }
+  
+  try {
+    const stored = localStorage.getItem(MCP_TOOLS_ENABLED_KEY);
+    if (stored === null) {
+      return true; // 기본값: 활성화
+    }
+    return stored === 'true';
+  } catch (error) {
+    console.error('Failed to load MCP tools enabled setting:', error);
+    return true;
+  }
+}
+
+export function saveMCPToolsEnabled(enabled: boolean): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    localStorage.setItem(MCP_TOOLS_ENABLED_KEY, enabled.toString());
+  } catch (error) {
+    console.error('Failed to save MCP tools enabled setting:', error);
+  }
 }
 
