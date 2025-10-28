@@ -15,12 +15,18 @@ Google Gemini API를 사용한 간단한 AI 채팅 애플리케이션입니다.
 - 📚 채팅 히스토리 관리 (사이드바)
 - ➕ 새 채팅 생성 기능
 - 🗑️ 개별 채팅 삭제 기능
+- 🔧 **MCP (Model Context Protocol) 통합**
+  - MCP 서버 관리 UI
+  - 함수 호출 시각화
+  - STDIO/SSE/HTTP 전송 방식 지원
+  - 로컬 개발 환경 최적화
 
 ## 기술 스택
 
 - **프레임워크**: Next.js 15 (App Router)
 - **LLM**: Google Gemini (`gemini-2.0-flash-001`)
 - **SDK**: `@google/genai`
+- **MCP**: `@modelcontextprotocol/sdk` (Model Context Protocol)
 - **마크다운**: `streamdown` (AI 스트리밍 최적화)
 - **스타일링**: Tailwind CSS
 - **아이콘**: Lucide React
@@ -151,6 +157,25 @@ Vercel을 사용한 배포를 권장합니다:
 2. [Vercel](https://vercel.com)에서 프로젝트를 import합니다
 3. 환경 변수(`GEMINI_API_KEY`)를 설정합니다
 4. 배포를 진행합니다
+
+### ⚠️ MCP 기능 제한사항
+
+**Vercel 및 서버리스 환경에서의 MCP 제한:**
+
+- ❌ **STDIO 전송 방식은 작동하지 않습니다**
+  - Vercel, AWS Lambda 등 서버리스 환경에서는 외부 프로세스(`uvx`, `npx` 등)를 실행할 수 없습니다
+  - `spawn uvx ENOENT` 에러가 발생합니다
+  
+- ✅ **대안:**
+  - **로컬 개발 환경**에서만 STDIO 기반 MCP 서버 사용
+  - **배포 환경**에서는 SSE 또는 HTTP 전송 방식의 MCP 서버 사용
+  - MCP 기능 없이 기본 채팅 기능만 사용
+
+**권장 사용 방법:**
+```
+로컬 개발: STDIO MCP 서버 (uvx mcp-server-time 등)
+프로덕션: SSE/HTTP MCP 서버 또는 MCP 기능 비활성화
+```
 
 ## 라이선스
 

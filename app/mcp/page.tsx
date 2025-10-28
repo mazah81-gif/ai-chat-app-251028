@@ -297,10 +297,16 @@ export default function MCPManagePage() {
                   onChange={(e) => setFormData({ ...formData, transportType: e.target.value as MCPTransportType })}
                   className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                  <option value="stdio">STDIO</option>
-                  <option value="sse">SSE</option>
-                  <option value="http">HTTP</option>
+                  <option value="stdio">STDIO (로컬 전용)</option>
+                  <option value="sse">SSE (서버리스 호환)</option>
+                  <option value="http">HTTP (서버리스 호환)</option>
                 </select>
+                {formData.transportType === 'stdio' && (
+                  <p className="mt-2 text-sm text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
+                    ⚠️ <strong>STDIO 전송 방식은 로컬 개발 환경에서만 작동합니다.</strong><br/>
+                    Vercel, AWS Lambda 등 서버리스 환경에서는 프로세스를 실행할 수 없으므로 SSE 또는 HTTP 전송 방식을 사용해주세요.
+                  </p>
+                )}
               </div>
 
               {formData.transportType === 'stdio' && (

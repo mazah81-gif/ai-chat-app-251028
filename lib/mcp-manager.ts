@@ -49,6 +49,11 @@ class MCPManager {
     try {
       switch (config.transportType) {
         case 'stdio':
+          // Vercel/서버리스 환경에서는 stdio 불가
+          if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+            throw new Error('STDIO transport is not supported in serverless environments (Vercel, AWS Lambda, etc.). Please use SSE or HTTP transport instead.');
+          }
+          
           if (!config.command) {
             throw new Error('STDIO transport requires command');
           }
