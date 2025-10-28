@@ -7,7 +7,7 @@ const ai = new GoogleGenAI({
 });
 
 // 함수 호출 이벤트를 JSON으로 인코딩하여 전송
-function sendFunctionCallEvent(controller: ReadableStreamDefaultController, type: string, data: any) {
+function sendFunctionCallEvent(controller: ReadableStreamDefaultController, type: string, data: unknown) {
   const encoder = new TextEncoder();
   const eventMarker = `\n<<<FUNCTION_EVENT>>>${JSON.stringify({ type, data })}<<<END_EVENT>>>\n`;
   controller.enqueue(encoder.encode(eventMarker));
@@ -89,19 +89,20 @@ export async function POST(request: NextRequest) {
             console.log(`[Chat API] Iteration ${iterations}`);
             
             const stream = await chat.sendMessageStream({ message: currentMessage });
-            let fullResponse = '';
-            let functionCalls: any[] = [];
+            let functionCalls: Array<{ name: string; args?: Record<string, unknown> }> = [];
 
             for await (const chunk of stream) {
               const text = chunk.text || '';
-              fullResponse += text;
               
               if (text) {
                 controller.enqueue(encoder.encode(text));
               }
 
               if (chunk.functionCalls && chunk.functionCalls.length > 0) {
-                functionCalls = chunk.functionCalls;
+                functionCalls = chunk.functionCalls
+                  .filter((call): call is { name: string; args?: Record<string, unknown> } => 
+                    typeof call.name === 'string'
+                  );
               }
             }
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
 
             // Function call 실행
             const functionResponses = await Promise.all(
-              functionCalls.map(async (call: any) => {
+              functionCalls.map(async (call) => {
                 try {
                   // serverId와 toolName 분리 (이제 __ 구분자 사용)
                   const parts = call.name.split('__');

@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
-import { MCPServerConfig, MCPServerState } from './types';
+import { MCPServerState } from './types';
 import { loadMCPServers } from './storage';
 
 interface MCPContextValue {
@@ -34,7 +34,7 @@ export function MCPProvider({ children }: { children: ReactNode }) {
       setServers(serverStates);
       
       // 서버 연결 상태 동기화
-      await syncConnectionStateInternal(serverStates);
+      await syncConnectionStateInternal();
     } catch (error) {
       console.error('Failed to refresh servers:', error);
     } finally {
@@ -42,7 +42,7 @@ export function MCPProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const syncConnectionStateInternal = async (serverStates: MCPServerState[]) => {
+  const syncConnectionStateInternal = async () => {
     try {
       // 서버에서 현재 연결된 서버 목록 가져오기
       const response = await fetch('/api/mcp/status');
@@ -69,8 +69,8 @@ export function MCPProvider({ children }: { children: ReactNode }) {
   };
 
   const syncConnectionState = useCallback(async () => {
-    await syncConnectionStateInternal(servers);
-  }, [servers]);
+    await syncConnectionStateInternal();
+  }, []);
 
   useEffect(() => {
     refreshServers();

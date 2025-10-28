@@ -376,7 +376,7 @@ export default function MCPManagePage() {
                   servers.map((server) => (
               <ServerCard
                 key={server.config.id}
-                server={server}
+                server={{ ...server.config, status: server.status }}
                 isExpanded={expandedServer === server.config.id}
                 onToggleExpand={() => toggleExpand(server.config.id)}
                 onConnect={() => handleConnect(server.config.id)}
@@ -406,7 +406,7 @@ function ServerCard({
   activeTab,
   onTabChange,
 }: {
-  server: any;
+  server: MCPServerConfig & { status?: string; lastConnected?: number; error?: string };
   isExpanded: boolean;
   onToggleExpand: () => void;
   onConnect: () => void;
@@ -420,31 +420,35 @@ function ServerCard({
   const [prompts, setPrompts] = useState<MCPPrompt[]>([]);
   const [resources, setResources] = useState<MCPResource[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [executeResult, setExecuteResult] = useState<any>(null);
-
-  useEffect(() => {
-    if (isExpanded && server.status === 'connected') {
-      loadData();
-    }
-  }, [isExpanded, server.status, activeTab]);
+  const [executeResult, setExecuteResult] = useState<unknown>(null);
 
   const loadData = async () => {
     setIsLoading(true);
     try {
       const response = await fetch(
-        `/api/mcp/list?serverId=${server.config.id}&type=${activeTab}`
+        `/api/mcp/list?serverId=${server.id}&type=${activeTab}`
       );
       const data = await response.json();
       
-      if (activeTab === 'tools') setTools(data.tools || []);
-      if (activeTab === 'prompts') setPrompts(data.prompts || []);
-      if (activeTab === 'resources') setResources(data.resources || []);
+      if (activeTab === 'tools') {
+        setTools(data.tools || []);
+      } else if (activeTab === 'prompts') {
+        setPrompts(data.prompts || []);
+      } else if (activeTab === 'resources') {
+        setResources(data.resources || []);
+      }
     } catch (error) {
       console.error('Failed to load data:', error);
-    } finally {
-      setIsLoading(false);
     }
+    setIsLoading(false);
   };
+
+  useEffect(() => {
+    if (isExpanded && server.status === 'connected') {
+      loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isExpanded, server.status, activeTab]);
 
   const handleExecuteTool = async (toolName: string) => {
     const argsStr = prompt('인자를 JSON 형식으로 입력하세요 (예: {"arg1": "value"})');
@@ -456,7 +460,7 @@ function ServerCard({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          serverId: server.config.id,
+          serverId: server.id,
           action: 'callTool',
           name: toolName,
           arguments: args,
@@ -476,7 +480,7 @@ function ServerCard({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          serverId: server.config.id,
+          serverId: server.id,
           action: 'readResource',
           uri,
         }),
@@ -508,10 +512,10 @@ function ServerCard({
         <div className="flex items-center gap-4 flex-1">
           <div className={`w-3 h-3 rounded-full ${getStatusColor()}`} />
           <div>
-            <h3 className="font-semibold">{server.config.name}</h3>
+            <h3 className="font-semibold">{server.name}</h3>
             <p className="text-sm text-muted-foreground">
-              {server.config.transportType.toUpperCase()}
-              {server.config.description && ` • ${server.config.description}`}
+              {server.transportType.toUpperCase()}
+              {server.description && ` • ${server.description}`}
               {server.status === 'connected' && server.lastConnected && (
                 <span className="ml-2 text-green-600">
                   • 연결됨 ({new Date(server.lastConnected).toLocaleTimeString()})

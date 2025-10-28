@@ -88,7 +88,7 @@ class MCPManager {
       // 연결 실패 시 정리
       try {
         await client.close();
-      } catch (e) {
+      } catch {
         // 정리 중 에러는 무시
       }
       throw error;
@@ -208,7 +208,7 @@ class MCPManager {
   async getAllTools(): Promise<Array<MCPTool & { serverId: string }>> {
     const allTools: Array<MCPTool & { serverId: string }> = [];
 
-    for (const [serverId, instance] of this.clients) {
+    for (const [serverId] of this.clients) {
       try {
         const tools = await this.listTools(serverId);
         allTools.push(

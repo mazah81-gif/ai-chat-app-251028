@@ -15,7 +15,16 @@ function parseResult(result: unknown): { formatted: string; isParsed: boolean } 
   
   try {
     // MCP 응답 형식: [{ type: 'text', text: '...' }]
-    if (Array.isArray(result) && result.length > 0 && result[0].type === 'text') {
+    if (
+      Array.isArray(result) && 
+      result.length > 0 && 
+      typeof result[0] === 'object' &&
+      result[0] !== null &&
+      'type' in result[0] &&
+      result[0].type === 'text' &&
+      'text' in result[0] &&
+      typeof result[0].text === 'string'
+    ) {
       const textContent = result[0].text;
       
       // JSON 문자열인지 확인
@@ -34,7 +43,7 @@ function parseResult(result: unknown): { formatted: string; isParsed: boolean } 
     }
     
     return { formatted: String(result), isParsed: false };
-  } catch (e) {
+  } catch {
     return { formatted: String(result), isParsed: false };
   }
 }
@@ -124,7 +133,7 @@ export function FunctionCallCard({ functionCall, theme = 'default' }: FunctionCa
             )}
 
             {/* 결과 표시 (확장 시) */}
-            {functionCall.status === 'success' && functionCall.result && isExpanded && (
+            {functionCall.status === 'success' && functionCall.result !== undefined && isExpanded && (
               <div className="mt-2 text-xs">
                 <div className="flex items-center gap-1 mb-1">
                   <span className="font-medium text-muted-foreground">응답 데이터:</span>
@@ -156,7 +165,7 @@ export function FunctionCallCard({ functionCall, theme = 'default' }: FunctionCa
         </div>
 
         {/* 펼치기/접기 버튼 (결과가 있을 때만) */}
-        {functionCall.status === 'success' && functionCall.result && (
+        {functionCall.status === 'success' && functionCall.result !== undefined && (
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="p-1 hover:bg-accent rounded transition-colors flex-shrink-0"
